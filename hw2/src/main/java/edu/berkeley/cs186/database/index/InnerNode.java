@@ -66,38 +66,282 @@ class InnerNode extends BPlusNode {
     sync();
   }
 
-  // Core API //////////////////////////////////////////////////////////////////
-  // See BPlusNode.get.
+  /**
+   * n.get(k) returns the leaf node on which k may reside when queried from n.
+   * For example, consider the following B+ tree (for brevity, only keys are
+   * shown; record ids are ommitted).
+   *
+   *                               inner
+   *                               +----+----+----+----+
+   *                               | 10 | 20 |    |    |
+   *                               +----+----+----+----+
+   *                              /     |     \
+   *                         ____/      |      \____
+   *                        /           |           \
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   |  1 |  2 |  3 |    |->| 11 | 12 | 13 |    |->| 21 | 22 | 23 |    |
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   leaf0                  leaf1                  leaf2
+   *
+   * inner.get(x) should return
+   *
+   *   - leaf0 when x < 10,
+   *   - leaf1 when 10 <= x < 20, and
+   *   - leaf2 when x >= 20.
+   *
+   * Note that inner.get(4) would return leaf0 even though leaf0 doesn't
+   * actually contain 4.
+   */
   @Override
   public LeafNode get(DataBox key) {
-    throw new UnsupportedOperationException("TODO(hw2): implement.");
+    int n = keys.size();
+    for (int i = 0; i < n; i++) {
+      if (key.compareTo(keys.get(i)) < 0) {
+        return getChild(i).get(key);
+      }
+    }
+    return getChild(n).get(key);
   }
 
-  // See BPlusNode.getLeftmostLeaf.
+  /**
+   * n.getLeftmostLeaf() returns the leftmost leaf in the subtree rooted by n.
+   * In the example above, inner.getLeftmostLeaf() would return leaf0, and
+   * leaf1.getLeftmostLeaf() would return leaf1.
+   */
   @Override
   public LeafNode getLeftmostLeaf() {
-    throw new UnsupportedOperationException("TODO(hw2): implement.");
+    return getChild(0).getLeftmostLeaf();
   }
 
-  // See BPlusNode.put.
+  /**
+   * n.put(k, r) inserts the pair (k, r) into the subtree rooted by n. There
+   * are two cases to consider:
+   *
+   *   Case 1: If inserting the pair (k, r) does NOT cause n to overflow, then
+   *           Optional.empty() is returned.
+   *   Case 2: If inserting the pair (k, r) does cause the node n to overflow,
+   *           then n is split into a left and right node (described more
+   *           below) and a pair (split_key, right_node_page_num) is returned
+   *           where right_node_page_num is the page number of the newly
+   *           created right node, and the value of split_key depends on
+   *           whether n is an inner node or a leaf node (described more below).
+   *
+   * Now we explain how to split nodes and which split keys to return. Let's
+   * take a look at an example. Consider inserting the key 4 into the example
+   * tree above. No nodes overflow (i.e. we always hit case 1). The tree then
+   * looks like this:
+   *
+   *                               inner
+   *                               +----+----+----+----+
+   *                               | 10 | 20 |    |    |
+   *                               +----+----+----+----+
+   *                              /     |     \
+   *                         ____/      |      \____
+   *                        /           |           \
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   |  1 |  2 |  3 |  4 |->| 11 | 12 | 13 |    |->| 21 | 22 | 23 |    |
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   leaf0                  leaf1                  leaf2
+   *
+   * Now let's insert key 5 into the tree. Now, leaf0 overflows and creates a
+   * new right sibling leaf3. d entries remain in the left node; d + 1 entries
+   * are moved to the right node. DO NOT REDISTRIBUTE ENTRIES ANY OTHER WAY. In
+   * our example, leaf0 and leaf3 would look like this:
+   *
+   *   +----+----+----+----+  +----+----+----+----+
+   *   |  1 |  2 |    |    |->|  3 |  4 |  5 |    |
+   *   +----+----+----+----+  +----+----+----+----+
+   *   leaf0                  leaf3
+   *
+   * When a leaf splits, it returns the first entry in the right node as the
+   * split key. In this example, 3 is the split key. After leaf0 splits, inner
+   * inserts the new key and child pointer into itself and hits case 0 (i.e. it
+   * does not overflow). The tree looks like this:
+   *
+   *                          inner
+   *                          +--+--+--+--+
+   *                          | 3|10|20|  |
+   *                          +--+--+--+--+
+   *                         /   |  |   \
+   *                 _______/    |  |    \_________
+   *                /            |   \             \
+   *   +--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+   *   | 1| 2|  |  |->| 3| 4| 5| 6|->|11|12|13|  |->|21|22|23|  |
+   *   +--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+   *   leaf0          leaf3          leaf1          leaf2
+   *
+   * When an inner node splits, the first d entries are kept in the left node
+   * and the last d entries are moved to the right node. The middle entry is
+   * moved (not copied) up as the split key. For example, we would split the
+   * following order 2 inner node
+   *
+   *   +---+---+---+---+
+   *   | 1 | 2 | 3 | 4 | 5
+   *   +---+---+---+---+
+   *
+   * into the following two inner nodes
+   *
+   *   +---+---+---+---+  +---+---+---+---+
+   *   | 1 | 2 |   |   |  | 4 | 5 |   |   |
+   *   +---+---+---+---+  +---+---+---+---+
+   *
+   * with a split key of 3.
+   *
+   * DO NOT redistribute entries in any other way besides what we have
+   * described. For example, do not move entries between nodes to avoid
+   * splitting.
+   *
+   * Our B+ trees do not support duplicate entries with the same key. If a
+   * duplicate key is inserted, the tree is left unchanged and an exception is
+   * raised.
+   */
   @Override
   public Optional<Pair<DataBox, Integer>> put(DataBox key, RecordId rid)
       throws BPlusTreeException {
-    throw new UnsupportedOperationException("TODO(hw2): implement.");
+    int pos = 0;
+    for (int i = 0; i < keys.size(); i++) {
+      if (key.compareTo(keys.get(i)) < 0) {
+        pos = i;
+        break;
+      } else {
+        pos = i + 1;
+      }
+    }
+
+    Optional<Pair<DataBox, Integer>> newnode = getChild(pos).put(key, rid);
+    if (newnode.isPresent()) {
+      keys.add(pos, newnode.get().getFirst());
+      children.add(pos + 1, newnode.get().getSecond());
+    }
+
+    int d = metadata.getOrder();
+    if (keys.size() <= 2 * d) {
+      sync();
+      return Optional.empty();
+    }
+
+    List<DataBox> split_key = keys.subList(d + 1, keys.size());
+    List<Integer> split_child = children.subList(d + 1, children.size());
+    InnerNode split_node = new InnerNode(metadata, split_key, split_child);
+
+    DataBox newkey = keys.remove(d);
+    keys = keys.subList(0, d);
+    children = children.subList(0, d + 1);
+
+    sync();
+    return Optional.of(new Pair<>(newkey, split_node.getPage().getPageNum()));
   }
 
-  // See BPlusNode.bulkLoad.
+  /**
+   * n.bulkLoad(data, fillFactor) bulk loads pairs of (k, r) from data into
+   * the tree with the given fill factor.
+   *
+   * This method is very similar to n.put, with a couple of differences:
+   *
+   * 1. Leaf nodes do not fill up to 2*d+1 and split, but rather, fill up to
+   * be 1 record more than fillFactor full, then "splits" by creating a right
+   * sibling that contains just one record (leaving the original node with
+   * the desired fill factor).
+   *
+   * 2. Inner nodes should repeatedly try to bulk load the rightmost child
+   * until either the inner node is full (in which case it should split)
+   * or there is no more data.
+   *
+   * fillFactor should ONLY be used for determining how full leaf nodes are
+   * (not inner nodes), and calculations should round up, i.e. with d=5
+   * and fillFactor=0.75, leaf nodes should be 8/10 full.
+   */
   @Override
   public Optional<Pair<DataBox, Integer>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
                                                    float fillFactor)
       throws BPlusTreeException {
-    throw new UnsupportedOperationException("TODO(hw2): implement.");
+
+    int d = metadata.getOrder();
+    while (data.hasNext()) {
+      Optional<Pair<DataBox, Integer>> curr_node = getChild(children.size() - 1).bulkLoad(data, fillFactor);
+
+      if (curr_node.isPresent()) {
+
+        keys.add(curr_node.get().getFirst());
+        children.add(curr_node.get().getSecond());
+
+        if (keys.size() > 2 * d) {
+          List<DataBox> split_key = keys.subList(d + 1, keys.size());
+          List<Integer> split_child = children.subList(d + 1, children.size());
+          InnerNode split_node = new InnerNode(metadata, split_key, split_child);
+
+          DataBox newkey = keys.remove(d);
+          keys = keys.subList(0, d);
+          children = children.subList(0, d + 1);
+
+          sync();
+          return Optional.of(new Pair<>(newkey, split_node.getPage().getPageNum()));
+        }
+      }
+    }
+    sync();
+    return Optional.empty();
   }
 
-  // See BPlusNode.remove.
+  /**
+   * n.remove(k) removes the key k and its corresponding record id from the
+   * subtree rooted by n, or does nothing if the key k is not in the subtree.
+   * REMOVE SHOULD NOT REBALANCE THE TREE. Simply delete the key and
+   * corresponding record id. For example, running inner.remove(2) on the
+   * example tree above would produce the following tree.
+   *
+   *                               inner
+   *                               +----+----+----+----+
+   *                               | 10 | 20 |    |    |
+   *                               +----+----+----+----+
+   *                              /     |     \
+   *                         ____/      |      \____
+   *                        /           |           \
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   |  1 |  3 |    |    |->| 11 | 12 | 13 |    |->| 21 | 22 | 23 |    |
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   leaf0                  leaf1                  leaf2
+   *
+   * Running inner.remove(1) on this tree would produce the following tree:
+   *
+   *                               inner
+   *                               +----+----+----+----+
+   *                               | 10 | 20 |    |    |
+   *                               +----+----+----+----+
+   *                              /     |     \
+   *                         ____/      |      \____
+   *                        /           |           \
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   |  3 |    |    |    |->| 11 | 12 | 13 |    |->| 21 | 22 | 23 |    |
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   leaf0                  leaf1                  leaf2
+   *
+   * Running inner.remove(3) would then produce the following tree:
+   *
+   *                               inner
+   *                               +----+----+----+----+
+   *                               | 10 | 20 |    |    |
+   *                               +----+----+----+----+
+   *                              /     |     \
+   *                         ____/      |      \____
+   *                        /           |           \
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   |    |    |    |    |->| 11 | 12 | 13 |    |->| 21 | 22 | 23 |    |
+   *   +----+----+----+----+  +----+----+----+----+  +----+----+----+----+
+   *   leaf0                  leaf1                  leaf2
+   *
+   * Again, do NOT rebalance the tree.
+   */
   @Override
   public void remove(DataBox key) {
-    throw new UnsupportedOperationException("TODO(hw2): implement.");
+    int n = keys.size();
+    for (int i = 0; i < n; i++) {
+      if (key.compareTo(keys.get(i)) < 0) {
+        getChild(i).remove(key);
+        break;
+      }
+    }
+    getChild(n).remove(key);
   }
 
   // Helpers ///////////////////////////////////////////////////////////////////

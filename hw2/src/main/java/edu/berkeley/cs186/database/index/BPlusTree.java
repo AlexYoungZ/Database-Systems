@@ -156,7 +156,7 @@ public class BPlusTree {
      */
     public Optional<RecordId> get(DataBox key) {
       typecheck(key);
-      throw new UnsupportedOperationException("TODO(hw2): implement.");
+        return root.get(key).getKey(key);
     }
 
     /**
@@ -204,8 +204,7 @@ public class BPlusTree {
      * memory will receive 0 points.
      */
     public Iterator<RecordId> scanAll() {
-      throw new UnsupportedOperationException("TODO(hw2): implement.");
-      // TODO(hw2): Return a BPlusTreeIterator.
+        return new BPlusTreeIterator();
     }
 
     /**
@@ -234,8 +233,7 @@ public class BPlusTree {
      */
     public Iterator<RecordId> scanGreaterEqual(DataBox key) {
       typecheck(key);
-      throw new UnsupportedOperationException("TODO(hw2): implement.");
-      // TODO(hw2): Return a BPlusTreeIterator.
+      return new BPlusTreeIterator(key);
     }
 
     /**
@@ -245,12 +243,27 @@ public class BPlusTree {
      *   BPlusTree tree = new BPlusTree("t.txt", Type.intType(), 4);
      *   DataBox key = new IntDataBox(42);
      *   RecordId rid = new RecordId(42, (short) 42);
-     *   tree.put(key, rid); // Sucess :)
+     *   tree.put(key, rid); // Success :)
      *   tree.put(key, rid); // BPlusTreeException :(
      */
     public void put(DataBox key, RecordId rid) throws BPlusTreeException {
       typecheck(key);
-      throw new UnsupportedOperationException("TODO(hw2): implement.");
+        Optional<Pair<DataBox, Integer>> curr_node = root.put(key, rid);
+        resetRoot(curr_node);
+    }
+
+    /**
+     * Helper method for setting new root
+     */
+    public void resetRoot(Optional<Pair<DataBox, Integer>> curr_node) {
+        if (curr_node.isPresent()) {
+            List<DataBox> key_list = new ArrayList<>();
+            List<Integer> child_list = new ArrayList<>();
+            key_list.add(curr_node.get().getFirst());
+            child_list.add(root.getPage().getPageNum());
+            child_list.add(curr_node.get().getSecond());
+            this.root = new InnerNode(metadata, key_list, child_list);
+        }
     }
 
     /**
@@ -268,8 +281,34 @@ public class BPlusTree {
      * The behavior of this method should be similar to that of InnerNode's
      * bulkLoad (see comments in BPlusNode.bulkLoad).
      */
+
+    /**
+     * n.bulkLoad(data, fillFactor) bulk loads pairs of (k, r) from data into
+     * the tree with the given fill factor.
+     *
+     * This method is very similar to n.put, with a couple of differences:
+     *
+     * 1. Leaf nodes do not fill up to 2*d+1 and split, but rather, fill up to
+     * be 1 record more than fillFactor full, then "splits" by creating a right
+     * sibling that contains just one record (leaving the original node with
+     * the desired fill factor).
+     *
+     * 2. Inner nodes should repeatedly try to bulk load the rightmost child
+     * until either the inner node is full (in which case it should split)
+     * or there is no more data.
+     *
+     * fillFactor should ONLY be used for determining how full leaf nodes are
+     * (not inner nodes), and calculations should round up, i.e. with d=5
+     * and fillFactor=0.75, leaf nodes should be 8/10 full.
+     */
     public void bulkLoad(Iterator<Pair<DataBox, RecordId>> data, float fillFactor) throws BPlusTreeException {
-      throw new UnsupportedOperationException("TODO(hw2): implement.");
+        if (!this.toSexp().equals("()")) {
+            throw new BPlusTreeException("not empty tree for bulk loading");
+        }
+        while (data.hasNext()) {
+            Optional<Pair<DataBox, Integer>> curr_node = root.bulkLoad(data, fillFactor);
+            resetRoot(curr_node);
+        }
     }
 
     /**
@@ -286,7 +325,7 @@ public class BPlusTree {
      */
     public void remove(DataBox key) {
       typecheck(key);
-      throw new UnsupportedOperationException("TODO(hw2): implement.");
+      root.remove(key);
     }
 
     // Helpers /////////////////////////////////////////////////////////////////
@@ -385,16 +424,42 @@ public class BPlusTree {
 
     // Iterator ////////////////////////////////////////////////////////////////
     private class BPlusTreeIterator implements Iterator<RecordId> {
-      // TODO(hw2): Add whatever fields and constructors you want here.
+
+        private LeafNode currLeaf;
+        private Iterator<RecordId> ridIter;
+
+        public BPlusTreeIterator() {
+            currLeaf = root.getLeftmostLeaf();
+            ridIter = currLeaf.scanAll();
+        }
+
+        public BPlusTreeIterator(DataBox key) {
+            currLeaf = root.get(key);
+            ridIter = currLeaf.scanGreaterEqual(key);
+        }
 
       @Override
       public boolean hasNext() {
-        throw new UnsupportedOperationException("TODO(hw2): implement.");
+            if (ridIter==null) return false;
+            if (ridIter.hasNext()) return true;
+
+          Optional<LeafNode> sibling = currLeaf.getRightSibling();
+          while (sibling.isPresent()) {
+              currLeaf = sibling.get();
+              ridIter = currLeaf.scanAll();
+              if (ridIter.hasNext()) return true;
+              else sibling = currLeaf.getRightSibling();
+          }
+          return false;
       }
 
       @Override
       public RecordId next() {
-        throw new UnsupportedOperationException("TODO(hw2): implement.");
+          if (ridIter.hasNext()) {
+              return ridIter.next();
+          } else {
+              throw new NoSuchElementException();
+          }
       }
     }
 }
