@@ -18,7 +18,8 @@ public class SortOperator  {
   private Schema operatorSchema;
   private int numBuffers;
 
-  public SortOperator(Database.Transaction transaction, String tableName, Comparator<Record> comparator) throws DatabaseException, QueryPlanException {
+  public SortOperator(Database.Transaction transaction, String tableName, Comparator<Record> comparator)
+          throws DatabaseException, QueryPlanException {
     this.transaction = transaction;
     this.tableName = tableName;
     this.comparator = comparator;
@@ -71,7 +72,14 @@ public class SortOperator  {
    * size of the buffer, but it is done this way for ease.
    */
   public Run sortRun(Run run) throws DatabaseException {
-    throw new UnsupportedOperationException("hw3: TODO");
+    List<Record> list = new ArrayList<>();
+    Iterator<Record> record = run.iterator();
+    while (record.hasNext()) list.add(record.next());
+
+    Collections.sort(list, comparator);
+    Run sorted = new Run();
+    sorted.addRecords(list);
+    return sorted;
   }
 
 
@@ -85,8 +93,29 @@ public class SortOperator  {
    * sorting on currently unmerged from run i.
    */
   public Run mergeSortedRuns(List<Run> runs) throws DatabaseException {
-    throw new UnsupportedOperationException("hw3: TODO");
+    PriorityQueue<Pair<Record, Integer>> pq = new PriorityQueue<>(new RecordPairComparator());
+    List<Iterator<Record>> iters = new ArrayList<>();
+    Run merged = new Run();
 
+    for (int i = 0; i < runs.size(); i++) {
+      Iterator<Record> iter = runs.get(i).iterator();
+      if (iter.hasNext()) {
+        pq.add(new Pair<>(iter.next(), i));
+        iters.add(iter);
+      }
+    }
+
+    while (!pq.isEmpty()) {
+      Pair<Record, Integer> top = pq.poll();
+      merged.addRecord(top.getFirst().getValues());
+
+      int index = top.getSecond();
+      Iterator<Record> nextIter = iters.get(top.getSecond());
+      if (nextIter.hasNext()) {
+        pq.add(new Pair<>(nextIter.next(), index));
+      }
+    }
+    return merged;
   }
 
   /**
@@ -95,8 +124,20 @@ public class SortOperator  {
    * of the input runs at a time.
    */
   public List<Run> mergePass(List<Run> runs) throws DatabaseException {
-    throw new UnsupportedOperationException("hw3: TODO");
 
+    List<Run> list = new ArrayList<>();
+    int bulksize = numBuffers - 1;
+    int len = runs.size();
+    for (int i = 0; i < Math.ceil(len / bulksize); i++) {
+      List<Run> bulksorted;
+      if ((i + 1) * bulksize <= len) {
+        bulksorted = runs.subList(i * bulksize, (i + 1) * bulksize);
+      } else {
+        bulksorted = runs.subList(i * bulksize, len);
+      }
+      list.add(mergeSortedRuns(bulksorted));
+    }
+    return list;
   }
 
 
@@ -106,8 +147,27 @@ public class SortOperator  {
    * Returns the name of the table that backs the final run.
    */
   public String sort() throws DatabaseException {
-    throw new UnsupportedOperationException("hw3: TODO");
 
+    List<Run> list = new ArrayList<>();
+    Iterator<Page> pageIterator = this.transaction.getPageIterator(tableName);
+    if (pageIterator.hasNext()) pageIterator.next();
+
+    while (pageIterator.hasNext()) {
+      Iterator<Record> recordIterator = this.transaction.getBlockIterator(tableName, pageIterator, numBuffers);
+      Run run = new Run();
+      List<Record> temp = new ArrayList<>();
+
+      while (recordIterator.hasNext()) {
+        temp.add(recordIterator.next());
+      }
+      run.addRecords(temp);
+      list.add(sortRun(run));
+    }
+
+    while (list.size() > 1) {
+      list = mergePass(list);
+    }
+    return list.get(0).tableName();
   }
 
 

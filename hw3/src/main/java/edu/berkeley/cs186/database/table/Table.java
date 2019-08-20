@@ -94,7 +94,7 @@ import edu.berkeley.cs186.database.io.PageAllocator.PageIterator;
  *  When we add a record to a table, we add it to the very first free slot in
  *  the table. See addRecord for more information.
  */
-public class Table implements Iterable<Record>, Closeable {
+public class  Table implements Iterable<Record>, Closeable {
   public static final String FILENAME_PREFIX = "db";
   public static final String FILENAME_EXTENSION = ".table";
 
@@ -436,6 +436,11 @@ public class Table implements Iterable<Record>, Closeable {
    */
   public class RIDPageIterator implements BacktrackingIterator<RecordId> {
     //member variables go here
+    private byte[] bitmap;
+    private int pageNum;
+    private int entryNum = -1;
+    private int mark = -1;
+    private int called = -1;
 
     /**
      * The following method signature is provided for guidance, but not necessary. Feel free to
@@ -443,23 +448,40 @@ public class Table implements Iterable<Record>, Closeable {
      */
 
     public RIDPageIterator(Page page) {
-      throw new UnsupportedOperationException("hw3: TODO");
+      this.bitmap = getBitMap(page);
+      this.pageNum = page.getPageNum();
     }
 
     public boolean hasNext() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      for (int i = entryNum + 1; i < numRecordsPerPage; i++) {
+        if (Bits.getBit(bitmap, i) == Bits.Bit.ONE) {
+          return true;
+        }
+      }
+      return false;
     }
 
     public RecordId next() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      called = 1;
+      for (int i = entryNum + 1; i < numRecordsPerPage; i++) {
+        if (Bits.getBit(bitmap, i) == Bits.Bit.ONE) {
+          entryNum=i;
+          return new RecordId(pageNum, (short) i);
+        }
+      }
+      throw new NoSuchElementException();
     }
 
     public void mark() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      if (called==-1) return;
+      mark = entryNum;
     }
 
     public void reset() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      if (mark != -1) {
+        entryNum = mark - 1;
+        called = -1;
+      }
     }
   }
 
@@ -520,8 +542,8 @@ public class Table implements Iterable<Record>, Closeable {
 
     public RIDBlockIterator(BacktrackingIterator<Page> block) {
       this.block = block;
-      throw new UnsupportedOperationException("hw3: TODO"); //if you want to add anything to this constructor, feel free to
-
+      if (block.hasNext()) this.blockIter = new RIDPageIterator(block.next());
+      if (blockIter!=null&&blockIter.hasNext()) this.nextRecordId = blockIter.next();
     }
 
     /**
@@ -558,11 +580,22 @@ public class Table implements Iterable<Record>, Closeable {
     }
 
     public boolean hasNext() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      return this.nextRecordId != null;
     }
 
     public RecordId next() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      if (!hasNext()) throw new NoSuchElementException();
+
+      prevRecordId = nextRecordId;
+      if (blockIter != null && blockIter.hasNext()) {
+        nextRecordId = blockIter.next();
+      } else if (block.hasNext()) {
+        blockIter = new RIDPageIterator(block.next());
+        nextRecordId = blockIter.hasNext() ? blockIter.next() : null;
+      } else {
+        nextRecordId = null;
+      }
+      return prevRecordId;
     }
 
     /**

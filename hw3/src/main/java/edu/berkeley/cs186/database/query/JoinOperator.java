@@ -157,9 +157,7 @@ public abstract class JoinOperator extends QueryOperator {
     return this.transaction;
   }
 
-  public int getLeftColumnIndex() {
-    return this.leftColumnIndex;
-  }
+  public int getLeftColumnIndex() { return this.leftColumnIndex; }
 
   public int getRightColumnIndex() {
     return this.rightColumnIndex;

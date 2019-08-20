@@ -55,16 +55,93 @@ public class PNLJOperator extends JoinOperator {
      * You're free to use these member variables, but you're not obligated to.
      */
 
-    //private Iterator<Page> leftIterator = null;
-    //private Iterator<Page> rightIterator = null;
-    //private BacktrackingIterator<Record> leftRecordIterator = null;
-    //private BacktrackingIterator<Record> rightRecordIterator = null;
-    //private Record leftRecord = null;
-    //private Record nextRecord = null;
+    private Iterator<Page> leftIterator;
+    private BacktrackingIterator<Page> rightIterator;
+    private BacktrackingIterator<Record> leftRecordIterator;
+    private BacktrackingIterator<Record> rightRecordIterator;
+    private Record leftRecord;
+    private Record rightRecord;
+    private Record nextRecord = null;
 
     public PNLJIterator() throws QueryPlanException, DatabaseException {
       super();
-      throw new UnsupportedOperationException("hw3: TODO");
+      this.leftIterator = PNLJOperator.this.getPageIterator(this.getLeftTableName());
+      this.rightIterator = (BacktrackingIterator<Page>) PNLJOperator.this.getPageIterator(this.getRightTableName());
+      leftIterator.next();
+      rightIterator.next();
+
+      rightIterator.next();
+      rightIterator.mark();
+      rightIterator.reset();
+
+      this.leftRecordIterator = PNLJOperator.this.getBlockIterator(this.getLeftTableName(), leftIterator, 1);
+      this.rightRecordIterator = PNLJOperator.this.getBlockIterator(this.getRightTableName(), rightIterator, 1);
+      this.leftRecord = leftRecordIterator.hasNext() ? leftRecordIterator.next() : null;
+      this.rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+
+      if (leftRecord != null) {
+        leftRecordIterator.mark();
+      } else return;
+      if (rightRecord != null) {
+        rightRecordIterator.mark();
+      } else return;
+
+      try {
+        fetchNextRecord();
+      } catch (DatabaseException e) {
+        this.nextRecord = null;
+      }
+    }
+
+    /**
+     * Pre-fetches what will be the next record, and puts it in this.nextRecord.
+     * Pre-fetching simplifies the logic of this.hasNext() and this.next()
+     * @throws DatabaseException
+     */
+    private void fetchNextRecord() throws DatabaseException {
+      if (this.leftRecord==null) throw new DatabaseException("No new record to fetch");
+      this.nextRecord = null;
+      do {
+        if (this.rightRecord != null) {
+          DataBox leftJoinValue = this.leftRecord.getValues().get(PNLJOperator.this.getLeftColumnIndex());
+          DataBox rightJoinValue = this.rightRecord.getValues().get(PNLJOperator.this.getRightColumnIndex());
+          if (leftJoinValue.equals(rightJoinValue)) {
+            List<DataBox> leftValues = new ArrayList<>(this.leftRecord.getValues());
+            List<DataBox> rightValues = new ArrayList<>(this.rightRecord.getValues());
+            leftValues.addAll(rightValues);
+            this.nextRecord = new Record(leftValues);
+          }
+          this.rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+
+        } else if (leftRecordIterator.hasNext()) {
+          this.leftRecord = leftRecordIterator.next();
+          this.rightRecordIterator.reset();
+          this.rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+          this.rightRecordIterator.mark();
+
+        } else if (rightIterator.hasNext()) {
+          leftRecordIterator.reset();
+          this.leftRecord = leftRecordIterator.hasNext() ? leftRecordIterator.next() : null;
+
+          this.rightRecordIterator = PNLJOperator.this.getBlockIterator(this.getRightTableName(), rightIterator, 1);
+          this.rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+          this.rightRecordIterator.mark();
+
+        } else if (leftIterator.hasNext()) {
+          this.rightIterator.reset();
+          this.rightRecordIterator = PNLJOperator.this.getBlockIterator(this.getRightTableName(), rightIterator, 1);
+          this.rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+          this.rightRecordIterator.mark();
+
+          this.leftRecordIterator = PNLJOperator.this.getBlockIterator(this.getLeftTableName(), leftIterator, 1);
+          this.leftRecord = leftRecordIterator.hasNext() ? leftRecordIterator.next() : null;
+          this.leftRecordIterator.mark();
+
+        } else {
+          throw new DatabaseException("All Done!");
+        }
+      } while (!hasNext());
+
     }
 
     /**
@@ -73,7 +150,7 @@ public class PNLJOperator extends JoinOperator {
      * @return true if this iterator has another record to yield, otherwise false
      */
     public boolean hasNext() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      return this.nextRecord != null;
     }
 
     /**
@@ -83,7 +160,17 @@ public class PNLJOperator extends JoinOperator {
      * @throws NoSuchElementException if there are no more Records to yield
      */
     public Record next() {
-      throw new UnsupportedOperationException("hw3: TODO");
+      if (!this.hasNext()) {
+        throw new NoSuchElementException();
+      }
+
+      Record currRecord = this.nextRecord;
+      try {
+        this.fetchNextRecord();
+      } catch (DatabaseException e) {
+        this.nextRecord = null;
+      }
+      return currRecord;
     }
 
     public void remove() {
