@@ -1,6 +1,7 @@
 package edu.berkeley.cs186.database.table.stats;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
 
@@ -10,7 +11,7 @@ import edu.berkeley.cs186.database.DatabaseException;
 import edu.berkeley.cs186.database.table.Table;
 import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.databox.TypeId;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+//import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 /**
  * A histogram maintains approximate statistics about a (potentially large) set
@@ -51,7 +52,7 @@ import sun.reflect.generics.reflectiveObjects.NotImplementedException;
  * b.getEnd(); //returns 100.0
  * b.increment(15);// adds the value 15 to the bucket
  * b.getCount();//returns the number of items added to the bucket
- * b.getDistinctCount();//returns the approximate number of distinct iterms added to the bucket
+ * b.getDistinctCount();//returns the approximate number of distinct items added to the bucket
  *
  *
  */
@@ -125,18 +126,28 @@ public class Histogram {
    */
   public void buildHistogram(Table table, int attribute){
 
-    // TODO: HW4 implement
-
     //1. first calculate the min and the max values
+    for (Record record : table) {
+      float tmp = quantization(record, attribute);
+      if (tmp<this.minValue) minValue = tmp;
+      if (tmp>this.maxValue) maxValue = tmp;
+    }
 
     //2. calculate the width of each bin
+    this.width = (maxValue - minValue) / numBuckets;
 
     //3. create each bucket object
+    for (int i = 0; i < numBuckets; i++) {
+      float start = i * width + minValue;
+      buckets[i] = new Bucket<>(start, start + width);
+    }
 
     //4. populate the data using the increment(value) method
-
-    throw new NotImplementedException();
-
+    for (Record record : table) {
+      float value = quantization(record, attribute);
+      int index = bucketIndex(value);
+      buckets[index].increment(value);
+    }
   }
 
   private int bucketIndex(float v) {
@@ -307,11 +318,11 @@ public class Histogram {
   private float [] allEquality(float qvalue){
     float [] result = new float[this.numBuckets];
 
-    // TODO: HW4 implement;
+    if (qvalue>maxValue||qvalue<minValue) return result;
 
-    throw new NotImplementedException();
-
-    // return result;
+    int index = bucketIndex(qvalue);
+    result[index] = (float) 1 / get(index).getDistinctCount();
+    return result;
   }
 
 
@@ -322,13 +333,14 @@ public class Histogram {
   private float [] allNotEquality(float qvalue){
     float [] result = new float[this.numBuckets];
 
+    Arrays.fill(result, 1);
+    if (qvalue > maxValue || qvalue < minValue) {
+      return result;
+    }
 
-    // TODO: HW4 implement;
-
-    throw new NotImplementedException();
-
-
-    // return result;
+    int index = bucketIndex(qvalue);
+    result[index] = 1 - (float) 1 / get(index).getDistinctCount();
+    return result;
   }
 
 
@@ -340,12 +352,18 @@ public class Histogram {
 
     float [] result = new float[this.numBuckets];
 
-    // TODO: HW4 implement;
+    if (qvalue>maxValue) return result;
+    if (qvalue < minValue) {
+      Arrays.fill(result, 1);
+      return result;
+    }
 
-    throw new NotImplementedException();
-
-
-    // return result;
+    int index = bucketIndex(qvalue);
+    result[index] = ((index + 1) * width + minValue - qvalue) / width;
+    for (int i = index + 1; i < numBuckets; i++) {
+      result[i] = 1;
+    }
+    return result;
   }
 
 
@@ -357,11 +375,18 @@ public class Histogram {
 
     float [] result = new float[this.numBuckets];
 
-    // TODO: HW4 implement;
+    if (qvalue<minValue) return result;
+    if (qvalue > maxValue) {
+      Arrays.fill(result, 1);
+      return result;
+    }
 
-    throw new NotImplementedException();
-
-    // return result;
+    int index = bucketIndex(qvalue);
+    result[index] = (qvalue - index * width + minValue) / width;
+    for (int i = 0; i < index; i++) {
+      result[i] = 1;
+    }
+    return result;
   }
 
 

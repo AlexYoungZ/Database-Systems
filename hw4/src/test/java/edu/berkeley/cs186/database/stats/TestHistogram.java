@@ -33,7 +33,7 @@ import static org.junit.Assert.*;
 import org.junit.After;
 
 
-public class TestHistogram {
+public class  TestHistogram {
 
   private Table table;
   private Schema schema;

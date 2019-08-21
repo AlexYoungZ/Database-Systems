@@ -13,7 +13,7 @@ import edu.berkeley.cs186.database.DatabaseException;
 import edu.berkeley.cs186.database.databox.DataBox;
 import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.table.Schema;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+// import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 /**
  * QueryPlan provides a set of functions to generate simple queries. Calling the methods corresponding
@@ -211,25 +211,40 @@ public class QueryPlan {
    */
   public Iterator<Record> executeOptimal() throws DatabaseException, QueryPlanException {
 
-    //TODO: HW4 Implement
+    Set<String> name = new HashSet<>();
+    Map<Set, QueryOperator> pass1 = new HashMap<>();
+
+    name.add(startTableName);
+    pass1.put(name, minCostSingleAccess(startTableName));
+
+    if (joinTableNames.size() == 0) {
+      this.finalOperator = minCostOperator(pass1);
+      addGroupBy();
+      addProjects();
+      return finalOperator.execute();
+    }
 
     // Pass 1: Iterate through all single tables. For each single table, find
     // the lowest cost QueryOperator to access that table. Construct a mapping
     // of each table name to its lowest cost operator.
-
+    for (int i = 0; i < joinTableNames.size(); i++) {
+      Set<String> tableName = new HashSet<>();
+      tableName.add(joinTableNames.get(i));
+      pass1.put(tableName, minCostSingleAccess(joinTableNames.get(i)));
+    }
 
     // Pass i: On each pass, use the results from the previous pass to find the
     // lowest cost joins with each single table. Repeat until all tables have
     // been joined.
-
+    Map<Set, QueryOperator> passi = minCostJoins(pass1, pass1);
+    while (passi.size() > 1) {
+      passi = minCostJoins(passi, pass1);
+    }
 
     // Get the lowest cost operator from the last pass, add GROUP BY and SELECT
     // operators, and return an iterator on the final operator
-
-
-    return this.execute(); //TODO: HW4 Replace this!!! Allows you to test intermediate functionality
-
-    //return ....
+    this.finalOperator = minCostOperator(passi);
+    return finalOperator.execute();
   }
 
   /**
@@ -308,13 +323,14 @@ public class QueryPlan {
   }
 
   /**
-   * Finds the lowest cost QueryOperator that scans the given table. First
-   * determine the cost of a sequential scan for the given table. Then for every index that can be
-   * used on that table, determine the cost of an index scan. Keep track of
-   * the minimum cost operation. Then push down eligible projects (SELECT
-   * predicates). If an index scan was chosen, exclude that SELECT predicate when
-   * pushing down selects. This method will be called during the first pass of the search
-   * algorithm to determine the most efficient way to access each single table.
+   * Finds the lowest cost QueryOperator that scans the given table.
+   * First determine the cost of a sequential scan for the given table.
+   * Then for every index that can be used on that table, determine the cost of an index scan.
+   * Keep track of the minimum cost operation.
+   * Then push down eligible projects (SELECT predicates).
+   * If an index scan was chosen, exclude that SELECT predicate when pushing down selects.
+   * This method will be called during the first pass of the search algorithm to determine the most efficient way to
+   * access each single table.
    *
    * @return a QueryOperator that has the lowest cost of scanning the given table which is
    * either a SequentialScanOperator or an IndexScanOperator nested within any possible
@@ -323,25 +339,31 @@ public class QueryPlan {
    * @throws QueryPlanException
    */
   public QueryOperator minCostSingleAccess(String table) throws DatabaseException, QueryPlanException {
-    /**
-     * TODO: HW4
-     */
 
     QueryOperator minOp = null;
 
     minOp = new SequentialScanOperator(this.transaction, table);
 
-    //TODO: HW4 Implement
-
     // 1. Find the cost of a sequential scan of the table
+    int minCost = minOp.estimateIOCost();
+    int except = Integer.MIN_VALUE;
 
     // 2. For each eligible index column, find the cost of an index scan of the
     // table and retain the lowest cost operator
-
+    for (int index : getEligibleIndexColumns(table)) {
+      String name = selectColumnNames.get(index);
+      PredicateOperator operator = selectOperators.get(index);
+      DataBox dataBox = selectDataBoxes.get(index);
+      IndexScanOperator indexOperator = new IndexScanOperator(transaction, table, name, operator, dataBox);
+      if (indexOperator.estimateIOCost() < minCost) {
+        minOp = indexOperator;
+        except = index;
+      }
+    }
 
     // 3. Push down SELECT predicates that apply to this table and that were not
     // used for an index scan
-
+    minOp = addEligibleSelections(minOp, except);
     return minOp;
   }
 
@@ -391,13 +413,7 @@ public class QueryPlan {
                                                Map<Set, QueryOperator> pass1Map) throws QueryPlanException,
           DatabaseException {
 
-    /**
-     * TODO: HW4
-     */
-
     Map<Set, QueryOperator> map = new HashMap<Set, QueryOperator>();
-
-    //TODO: HW4 Implement
 
     //We provide a basic description of the logic you have to implement
 
@@ -405,30 +421,55 @@ public class QueryPlan {
     //Input: pass1Map (each set is a singleton with one table and single table access query operator)
 
     //FOR EACH set of tables in prevMap:
+    for (Set set : prevMap.keySet()) {
 
-    //FOR EACH join condition listed in the query
+      //FOR EACH join condition listed in the query
+      QueryOperator leftOperator = prevMap.get(set);
 
-    //get the left side and the right side (table name and column)
+      for (int i = 0; i < joinTableNames.size(); i++) {
 
-    /**
-     * Case 1. Set contains left table but not right, use pass1Map to
-     * fetch the right operator to access the rightTable
-     *
-     * Case 2. Set contains right table but not left, use pass1Map to
-     * fetch the right operator to access the leftTable.
-     *
-     * Case 3. Set contains neither or both the left table or right table (contiue loop)
-     *
-     * --- Then given the operator, use minCostJoinType to calculate the cheapest join with that
-     * and the previously joined tables.
-     */
+        //get the left side and the right side (table name and column)
+        String[] left = getJoinLeftColumnNameByIndex(i);
+        String[] right = getJoinRightColumnNameByIndex(i);
+        String added, lCol, rCol;
 
-    /**
-     * Create a new set that is the union of the new table and previously
-     * joined tables. Add to result map this value mapping to the result from
-     * minCostJoinType if it doesn't exist or it exists and cost is lower.
-     */
+//        Case 1. Set contains left table but not right, use pass1Map to
+//        fetch the right operator to access the rightTable
+        if (set.contains(left[0]) && !set.contains(right[0])) {
+          added = right[0];
+          rCol = right[1];
+          lCol = left[1];
 
+//          Case 2. Set contains right table but not left, use pass1Map to
+//          fetch the right operator to access the leftTable.
+        } else if (!set.contains(left[0]) && set.contains(right[0])) {
+          added = left[0];
+          rCol = left[1];
+          lCol = right[1];
+
+//      Case 3. Set contains neither or both the left table or right table (contiue loop)
+        } else continue;
+
+//      Then given the operator, use minCostJoinType to calculate the cheapest join with that
+//      and the previously joined tables.
+        Set<String> tempSet = new HashSet<>();
+        tempSet.add(added);
+        QueryOperator rightOerator = pass1Map.get(tempSet);
+        QueryOperator operator = minCostJoinType(leftOperator, rightOerator, lCol, rCol);
+
+        /**
+         * Create a new set that is the union of the new table and previously
+         * joined tables. Add to result map this value mapping to the result from
+         * minCostJoinType if it doesn't exist or it exists and cost is lower.
+         */
+        HashSet<String> union = new HashSet<>(set);
+        union.add(added);
+        QueryOperator unionOp = map.get(union);
+        if (unionOp == null || unionOp.estimateIOCost() > operator.estimateIOCost()) {
+          map.put(union, operator);
+        }
+      }
+    }
     return map;
   }
 
