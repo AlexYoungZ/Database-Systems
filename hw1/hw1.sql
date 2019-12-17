@@ -1,15 +1,15 @@
 DROP VIEW IF EXISTS q0, q1i, q1ii, q1iii, q1iv, q2i, q2ii, q2iii, q3i, q3ii, q3iii, q4i, q4ii, q4iii, q4iv, q4v;
 
 -- Question 0
-CREATE VIEW q0(era) 
-AS
-  SELECT 1 -- replace this line
-;
+CREATE VIEW q0(era) AS
+select max(era)
+from pitching;
 
 -- Question 1i
 CREATE VIEW q1i(namefirst, namelast, birthyear)
 AS
-  SELECT 1, 1, 1 -- replace this line
+select namefirst,namelast,birthyear
+from people
 ;
 
 -- Question 1ii
