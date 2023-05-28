@@ -1,4 +1,4 @@
-package edu.berkeley.cs186.database.common;
+package main.java.edu.berkeley.cs186.database.common;
 
 import java.nio.ByteBuffer;
 

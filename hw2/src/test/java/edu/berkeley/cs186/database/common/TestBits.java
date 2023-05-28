@@ -1,10 +1,11 @@
-package edu.berkeley.cs186.database.common;
+package test.java.edu.berkeley.cs186.database.common;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
 import java.nio.ByteBuffer;
 
+import main.java.edu.berkeley.cs186.database.common.Bits;
 import org.junit.Test;
 
 public class TestBits {
